@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { setMastered, store } from "../store";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { activeDict, dictWords, setMastered, store } from "../store";
 import type { WordEntry } from "../types";
 
 type Mode = "en2cn" | "cn2en" | "both";
@@ -14,16 +14,17 @@ const round = ref(1);
 
 const pool = computed(() =>
   onlyUnmastered.value
-    ? store.words.filter((w) => !w.mastered)
-    : store.words,
+    ? dictWords.value.filter((w) => !w.mastered)
+    : dictWords.value,
 );
 
 const current = computed<WordEntry | null>(() => deck.value[idx.value] ?? null);
 /** 中英同显模式下没有「翻开」的概念，直接全显示 */
 const flipped = computed(() => mode.value === "both" || revealed.value);
-const noWords = computed(() => store.words.length === 0);
+const noWords = computed(() => dictWords.value.length === 0);
 const allMastered = computed(
-  () => onlyUnmastered.value && pool.value.length === 0 && store.words.length > 0,
+  () =>
+    onlyUnmastered.value && pool.value.length === 0 && dictWords.value.length > 0,
 );
 
 function shuffle<T>(arr: T[]): T[] {
@@ -87,7 +88,59 @@ function markCurrentMastered() {
   }
 }
 
+// ---- 默写（中 → 英模式） ----
+
+const spellInput = ref<HTMLInputElement | null>(null);
+const spelling = ref("");
+const spellState = ref<"idle" | "correct" | "wrong">("idle");
+let spellTimer: number | undefined;
+
+function resetSpell() {
+  window.clearTimeout(spellTimer);
+  spelling.value = "";
+  spellState.value = "idle";
+}
+
+function normalizeSpell(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function submitSpell() {
+  if (!current.value) return;
+  if (spellState.value === "correct") return; // 正在等待自动切换下一个
+  const ok =
+    normalizeSpell(spelling.value) === normalizeSpell(current.value.name);
+  window.clearTimeout(spellTimer);
+  if (ok) {
+    // 答对：绿框示意一下，然后自动进入下一个单词
+    spellState.value = "correct";
+    spellTimer = window.setTimeout(() => {
+      spelling.value = "";
+      spellState.value = "idle";
+      next();
+    }, 450);
+  } else {
+    // 答错：抖动示意并清空，留在当前单词
+    spelling.value = "";
+    spellState.value = "wrong";
+    spellTimer = window.setTimeout(() => {
+      spellState.value = "idle";
+    }, 600);
+  }
+  spellInput.value?.focus();
+}
+
 function onKey(e: KeyboardEvent) {
+  const target = e.target as HTMLElement | null;
+  // 正在输入框打字时不响应全局快捷键（空格 / 方向键 / M）
+  if (
+    target &&
+    (target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable)
+  ) {
+    return;
+  }
   if (!current.value) return;
   if (e.code === "Space") {
     e.preventDefault();
@@ -118,6 +171,26 @@ watch(
 
 // 切换「仅未掌握」时重建卡组
 watch(onlyUnmastered, rebuild);
+
+// 切换词库时重建卡组
+watch(
+  () => store.activeDictId,
+  () => {
+    if (store.ready) rebuild();
+  },
+);
+
+// 换词后清空默写输入和状态
+watch(
+  () => current.value?.id,
+  () => resetSpell(),
+);
+
+// 切换模式时清空拼写输入，并聚焦输入框方便继续打字
+watch(mode, () => {
+  resetSpell();
+  nextTick(() => spellInput.value?.focus());
+});
 </script>
 
 <template>
@@ -125,7 +198,9 @@ watch(onlyUnmastered, rebuild);
     <header class="view-head">
       <div>
         <h2>随机循环</h2>
-        <p class="muted">空格 翻转 · ← → 切换单词 · M 标记掌握</p>
+        <p class="muted">
+          空格 翻转 · ← → 切换单词 · M 标记掌握 · 回车 检查拼写
+        </p>
       </div>
       <div class="fc-toolbar">
         <div class="segmented">
@@ -146,9 +221,11 @@ watch(onlyUnmastered, rebuild);
       </div>
     </header>
 
-    <!-- 词库为空 -->
+    <!-- 当前词库为空 -->
     <div v-if="noWords" class="card-area">
-      <p class="empty">词库是空的，先去「单词本」添加或导入一些单词吧。</p>
+      <p class="empty">
+        词库「{{ activeDict?.name }}」还是空的，先去「单词本」添加或导入一些单词吧。
+      </p>
     </div>
 
     <!-- 仅未掌握模式下全部掌握 -->
@@ -163,7 +240,8 @@ watch(onlyUnmastered, rebuild);
     <template v-else-if="current">
       <div class="card-area">
         <div class="fc-status">
-          第 {{ round }} 轮 · {{ idx + 1 }} / {{ deck.length }}
+          {{ activeDict?.name }} · 第 {{ round }} 轮 · {{ idx + 1 }} /
+          {{ deck.length }}
           <template v-if="onlyUnmastered">（仅未掌握）</template>
         </div>
 
@@ -199,6 +277,22 @@ watch(onlyUnmastered, rebuild);
             <div v-if="current.note" class="fc-note">{{ current.note }}</div>
           </template>
         </div>
+
+        <!-- 拼写输入框：所有模式可用，答对自动下一个 -->
+        <input
+          ref="spellInput"
+          v-model="spelling"
+          class="spell-input"
+          :class="{
+            correct: spellState === 'correct',
+            wrong: spellState === 'wrong',
+          }"
+          placeholder="输入英文单词，回车检查（答对自动下一个）"
+          spellcheck="false"
+          autocomplete="off"
+          autocapitalize="off"
+          @keydown.enter.prevent="submitSpell"
+        />
 
         <div class="fc-progress">
           <div class="fc-progress-bar">

@@ -12,6 +12,8 @@ const STORAGE_FILE: &str = "wordbook.json";
 #[serde(default)]
 pub struct WordEntry {
     pub id: String,
+    #[serde(rename = "dictId", deserialize_with = "null_or_string")]
+    pub dict_id: String,
     #[serde(deserialize_with = "null_or_string")]
     pub name: String,
     #[serde(deserialize_with = "null_or_string_vec")]
@@ -34,6 +36,7 @@ impl Default for WordEntry {
     fn default() -> Self {
         Self {
             id: String::new(),
+            dict_id: String::new(),
             name: String::new(),
             trans: Vec::new(),
             usphone: String::new(),
@@ -46,17 +49,31 @@ impl Default for WordEntry {
     }
 }
 
+/// 词库（分组）元信息。单词条目通过 dictId 关联到对应词库。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct DictMeta {
+    #[serde(deserialize_with = "null_or_string")]
+    pub id: String,
+    #[serde(deserialize_with = "null_or_string")]
+    pub name: String,
+    #[serde(deserialize_with = "null_or_u64")]
+    pub created_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WordBook {
     pub version: u32,
+    pub dicts: Vec<DictMeta>,
     pub words: Vec<WordEntry>,
 }
 
 impl Default for WordBook {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
+            dicts: Vec::new(),
             words: Vec::new(),
         }
     }
@@ -114,9 +131,11 @@ fn storage_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join(STORAGE_FILE))
 }
 
-/// 解析词库文本，兼容两种格式：
-/// 1. 本应用格式：`{ "version": 1, "words": [ ... ] }`
-/// 2. 外部词库格式：直接数组 `[ { "name": ..., "trans": [...], "usphone": "...", "ukphone": "..." } ]`
+/// 解析词库文本，兼容三种格式：
+/// 1. 本应用格式：`{ "version": 2, "dicts": [...], "words": [ ... ] }`
+/// 2. 旧版应用格式：`{ "version": 1, "words": [ ... ] }`（无词库分组，
+///    由前端迁移到默认词库）
+/// 3. 外部词库格式：直接数组 `[ { "name": ..., "trans": [...], "usphone": "...", "ukphone": "..." } ]`
 fn parse_book(content: &str) -> Result<WordBook, String> {
     if content.trim().is_empty() {
         return Ok(WordBook::default());
@@ -126,7 +145,11 @@ fn parse_book(content: &str) -> Result<WordBook, String> {
     }
     let words: Vec<WordEntry> = serde_json::from_str(content)
         .map_err(|e| format!("无法识别的 JSON 词库格式: {e}"))?;
-    Ok(fill_ids(WordBook { version: 1, words }))
+    Ok(fill_ids(WordBook {
+        version: 1,
+        dicts: Vec::new(),
+        words,
+    }))
 }
 
 /// 给缺少 id 的条目（如外部导入的）补一个唯一 id
@@ -135,6 +158,11 @@ fn fill_ids(mut book: WordBook) -> WordBook {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
+    for (i, d) in book.dicts.iter_mut().enumerate() {
+        if d.id.is_empty() {
+            d.id = format!("d{}-{}", seed, i);
+        }
+    }
     for (i, w) in book.words.iter_mut().enumerate() {
         if w.id.is_empty() {
             w.id = format!("w{}-{}", seed, i);
@@ -184,6 +212,14 @@ fn export_words(path: String, book: WordBook) -> Result<(), String> {
     Ok(())
 }
 
+/// 导出完整备份（含词库分组结构），可用于换机迁移
+#[tauri::command]
+fn export_book(path: String, book: WordBook) -> Result<(), String> {
+    let content = serde_json::to_string_pretty(&book).map_err(|e| e.to_string())?;
+    fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -193,8 +229,61 @@ pub fn run() {
             load_words,
             save_words,
             import_words,
-            export_words
+            export_words,
+            export_book
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_old_format_without_dicts() {
+        let content = r#"{"version":1,"words":[{"id":"w1","name":"apple","trans":["苹果"]}]}"#;
+        let book = parse_book(content).unwrap();
+        assert_eq!(book.words.len(), 1);
+        assert!(book.dicts.is_empty());
+        // 旧数据没有词库归属，由前端迁移到默认词库
+        assert_eq!(book.words[0].dict_id, "");
+    }
+
+    #[test]
+    fn parse_new_format_with_dicts() {
+        let content = r#"{"version":2,"dicts":[{"id":"d1","name":"CET-6","created_at":1}],"words":[{"id":"w1","dictId":"d1","name":"apple","trans":["苹果"]}]}"#;
+        let book = parse_book(content).unwrap();
+        assert_eq!(book.dicts.len(), 1);
+        assert_eq!(book.dicts[0].name, "CET-6");
+        assert_eq!(book.words[0].dict_id, "d1");
+    }
+
+    #[test]
+    fn parse_external_array() {
+        let content = r#"[{"name":"apple","trans":["苹果"],"usphone":"ˈæpl"}]"#;
+        let book = parse_book(content).unwrap();
+        assert_eq!(book.words.len(), 1);
+        assert_eq!(book.words[0].usphone, "ˈæpl");
+        // 缺失的 id 会被补全
+        assert!(!book.words[0].id.is_empty());
+        assert_eq!(book.words[0].dict_id, "");
+    }
+
+    #[test]
+    fn parse_tolerates_null_and_missing_fields() {
+        let content = r#"[{"name":null,"trans":null,"mastered":null},{"trans":["只有释义"]}]"#;
+        let book = parse_book(content).unwrap();
+        assert_eq!(book.words.len(), 2);
+        assert_eq!(book.words[0].name, "");
+        assert!(!book.words[0].mastered);
+        assert!(!book.words[1].id.is_empty());
+    }
+
+    #[test]
+    fn empty_content_is_empty_book() {
+        let book = parse_book("  \n ").unwrap();
+        assert!(book.words.is_empty());
+        assert!(book.dicts.is_empty());
+    }
 }

@@ -1,5 +1,14 @@
+/** 词库（分组）元信息，单词通过 dictId 关联到词库 */
+export interface Dictionary {
+  id: string;
+  name: string;
+  created_at: number;
+}
+
 export interface WordEntry {
   id: string;
+  /** 所属词库 id */
+  dictId: string;
   /** 英文单词 */
   name: string;
   /** 中文释义，可多条 */
@@ -17,6 +26,7 @@ export interface WordEntry {
 
 export interface WordBook {
   version: number;
+  dicts: Dictionary[];
   words: WordEntry[];
 }
 

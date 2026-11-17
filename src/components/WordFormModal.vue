@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
-import { addWord, updateWord } from "../store";
+import { addWord, store, toast, updateWord } from "../store";
 import type { WordEntry } from "../types";
 
 const props = defineProps<{ entry: WordEntry | null }>();
@@ -13,6 +13,7 @@ const form = reactive({
   ukphone: props.entry?.ukphone ?? "",
   note: props.entry?.note ?? "",
 });
+const dictId = ref(props.entry?.dictId || store.activeDictId);
 
 const nameInput = ref<HTMLInputElement | null>(null);
 onMounted(() => nameInput.value?.focus());
@@ -37,17 +38,33 @@ function submit() {
     ukphone: form.ukphone.trim(),
     note: form.note.trim(),
   };
-  if (props.entry) updateWord(props.entry.id, draft);
-  else addWord(draft);
+  if (props.entry) {
+    const moved = dictId.value !== props.entry.dictId;
+    updateWord(props.entry.id, draft, dictId.value);
+    if (moved) {
+      const target = store.dicts.find((d) => d.id === dictId.value);
+      toast(`已移动到「${target?.name ?? ""}」`);
+    }
+  } else {
+    addWord(draft, dictId.value);
+  }
   emit("close");
 }
 </script>
 
 <template>
-  <div class="modal-mask" @click.self="emit('close')">
+  <div class="modal-mask">
     <div class="modal">
       <h2>{{ props.entry ? "编辑单词" : "添加单词" }}</h2>
       <form class="form" @submit.prevent="submit">
+        <label class="field">
+          <span class="field-label">所属词库</span>
+          <select v-model="dictId">
+            <option v-for="d in store.dicts" :key="d.id" :value="d.id">
+              {{ d.name }}
+            </option>
+          </select>
+        </label>
         <label class="field">
           <span class="field-label">英文 *</span>
           <input ref="nameInput" v-model="form.name" placeholder="例如：massage" />
