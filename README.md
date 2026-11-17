@@ -66,6 +66,8 @@
 导出当前词库时使用数组格式（附带全部字段，外部工具可按 `name` / `trans` 读取）；
 「备份全部」导出上文的完整格式。
 
+https://github.com/RealKai42/qwerty-learner/tree/master/public/dicts 可以直接导入该库的词典
+
 ## 开发
 
 ```bash
