@@ -24,6 +24,13 @@ export interface WordEntry {
   updated_at: number;
 }
 
+/** 列表学情筛选 */
+export type StatusFilter = "all" | "unmastered" | "mastered";
+/** 列表排序：按添加/导入时间（新→旧）或字母序 */
+export type SortMode = "time" | "alpha";
+/** 列表视图：卡片 / 紧凑列表 */
+export type ViewMode = "card" | "compact";
+
 export interface WordBook {
   version: number;
   dicts: Dictionary[];

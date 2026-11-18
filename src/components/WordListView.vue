@@ -9,17 +9,28 @@ import {
   formatTrans,
   importBook,
   importEntries,
-  masteredCount,
   removeWord,
+  setFilter,
   setMastered,
+  setSort,
+  setView,
+  statusCounts,
   store,
   toast,
 } from "../store";
-import type { WordEntry } from "../types";
+import type { SortMode, StatusFilter, WordEntry } from "../types";
 import WordFormModal from "./WordFormModal.vue";
+
+const FILTERS: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "全部" },
+  { value: "unmastered", label: "未掌握" },
+  { value: "mastered", label: "已掌握" },
+];
 
 const showForm = ref(false);
 const editing = ref<WordEntry | null>(null);
+/** 紧凑列表中展开的单词 id */
+const expandedId = ref<string | null>(null);
 
 function openAdd() {
   editing.value = null;
@@ -29,6 +40,18 @@ function openAdd() {
 function openEdit(w: WordEntry) {
   editing.value = w;
   showForm.value = true;
+}
+
+function toggleExpand(id: string) {
+  expandedId.value = expandedId.value === id ? null : id;
+}
+
+function onSortChange(e: Event) {
+  setSort((e.target as HTMLSelectElement).value as SortMode);
+}
+
+function statusCount(f: StatusFilter): number {
+  return f === "all" ? statusCounts.value.all : statusCounts.value[f];
 }
 
 async function doDelete(w: WordEntry) {
@@ -93,7 +116,7 @@ async function doExport() {
       <div>
         <h2>{{ activeDict?.name ?? "单词本" }}</h2>
         <p class="muted">
-          共 {{ dictWords.length }} 个单词，已掌握 {{ masteredCount }}
+          共 {{ dictWords.length }} 个单词，已掌握 {{ statusCounts.mastered }}
         </p>
       </div>
       <div class="head-actions">
@@ -109,39 +132,120 @@ async function doExport() {
       placeholder="搜索单词、释义、备注或音标…"
     />
 
-    <div class="word-list">
+    <div class="list-toolbar">
+      <div class="chips">
+        <button
+          v-for="f in FILTERS"
+          :key="f.value"
+          class="chip"
+          :class="{ active: store.filter === f.value }"
+          @click="setFilter(f.value)"
+        >
+          <span v-if="f.value !== 'all'" class="chip-dot" :class="f.value"></span>
+          {{ f.label }}
+          <span class="chip-n">{{ statusCount(f.value) }}</span>
+        </button>
+      </div>
+      <div class="toolbar-right">
+        <select
+          class="sort-select"
+          :value="store.sort"
+          title="排序方式"
+          @change="onSortChange"
+        >
+          <option value="time">按时间（新→旧）</option>
+          <option value="alpha">按字母 A→Z</option>
+        </select>
+        <div class="segmented" title="视图">
+          <button
+            :class="{ active: store.view === 'card' }"
+            @click="setView('card')"
+          >
+            卡片
+          </button>
+          <button
+            :class="{ active: store.view === 'compact' }"
+            @click="setView('compact')"
+          >
+            列表
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="word-list" :class="store.view === 'compact' ? 'compact' : ''">
       <p v-if="dictWords.length === 0" class="empty">
         「{{ activeDict?.name }}」还没有单词。<br />
         点击右上角「添加单词」手动记录，或「导入」你已有的 JSON 词库文件。
       </p>
       <p v-else-if="filteredWords.length === 0" class="empty">
-        没有匹配「{{ store.query }}」的单词。
+        <template v-if="store.query">没有匹配「{{ store.query }}」的单词。</template>
+        <template v-else>
+          当前筛选「{{ FILTERS.find((f) => f.value === store.filter)?.label }}」下没有单词。
+        </template>
       </p>
 
-      <article
-        v-for="w in filteredWords"
-        :key="w.id"
-        class="word-card"
-        :class="{ mastered: w.mastered }"
-      >
-        <div class="word-main">
-          <div class="word-title">
-            <span class="word-name">{{ w.name }}</span>
-            <span v-if="w.usphone" class="phone">美 {{ w.usphone }}</span>
-            <span v-if="w.ukphone" class="phone">英 {{ w.ukphone }}</span>
-            <span v-if="w.mastered" class="badge">已掌握</span>
+      <!-- 卡片视图 -->
+      <template v-if="store.view === 'card'">
+        <article
+          v-for="w in filteredWords"
+          :key="w.id"
+          class="word-card"
+          :class="{ mastered: w.mastered }"
+        >
+          <div class="word-main">
+            <div class="word-title">
+              <span class="word-name">{{ w.name }}</span>
+              <span v-if="w.usphone" class="phone">美 {{ w.usphone }}</span>
+              <span v-if="w.ukphone" class="phone">英 {{ w.ukphone }}</span>
+              <span v-if="w.mastered" class="badge">已掌握</span>
+            </div>
+            <div class="word-trans">{{ formatTrans(w) }}</div>
+            <div v-if="w.note" class="word-note">{{ w.note }}</div>
           </div>
-          <div class="word-trans">{{ formatTrans(w) }}</div>
-          <div v-if="w.note" class="word-note">{{ w.note }}</div>
+          <div class="word-actions">
+            <button class="btn small" @click="setMastered(w.id, !w.mastered)">
+              {{ w.mastered ? "取消掌握" : "标记掌握" }}
+            </button>
+            <button class="btn small" @click="openEdit(w)">编辑</button>
+            <button class="btn small danger" @click="doDelete(w)">删除</button>
+          </div>
+        </article>
+      </template>
+
+      <!-- 紧凑列表视图：点击行展开详情和操作 -->
+      <template v-else>
+        <div
+          v-for="w in filteredWords"
+          :key="w.id"
+          class="word-item"
+          :class="{ open: expandedId === w.id, mastered: w.mastered }"
+        >
+          <div class="word-row" @click="toggleExpand(w.id)">
+            <span
+              class="s-dot"
+              :class="{ mastered: w.mastered }"
+              :title="w.mastered ? '已掌握' : '未掌握'"
+            ></span>
+            <span class="row-name">{{ w.name }}</span>
+            <span v-if="w.usphone" class="row-phone">美 {{ w.usphone }}</span>
+            <span class="row-trans">{{ formatTrans(w) }}</span>
+            <span class="row-chev">{{ expandedId === w.id ? "▾" : "▸" }}</span>
+          </div>
+          <div v-if="expandedId === w.id" class="row-detail">
+            <div v-if="w.ukphone" class="detail-extra">英 {{ w.ukphone }}</div>
+            <div class="detail-trans">{{ formatTrans(w) }}</div>
+            <div v-if="w.note" class="detail-note">{{ w.note }}</div>
+            <div class="row-actions">
+              <button class="btn small" @click="setMastered(w.id, !w.mastered)">
+                {{ w.mastered ? "取消掌握" : "标记掌握" }}
+              </button>
+              <button class="btn small" @click="openEdit(w)">编辑</button>
+              <button class="btn small danger" @click="doDelete(w)">删除</button>
+            </div>
+          </div>
         </div>
-        <div class="word-actions">
-          <button class="btn small" @click="setMastered(w.id, !w.mastered)">
-            {{ w.mastered ? "取消掌握" : "标记掌握" }}
-          </button>
-          <button class="btn small" @click="openEdit(w)">编辑</button>
-          <button class="btn small danger" @click="doDelete(w)">删除</button>
-        </div>
-      </article>
+      </template>
     </div>
 
     <WordFormModal v-if="showForm" :entry="editing" @close="showForm = false" />

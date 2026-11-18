@@ -76,16 +76,18 @@ function prev() {
   }
 }
 
+/** 「仅未掌握」模式下，已掌握的单词直接移出卡组 */
+function pruneDeck(id: string) {
+  deck.value = deck.value.filter((x) => x.id !== id);
+  if (idx.value >= deck.value.length) idx.value = 0;
+  revealed.value = false;
+}
+
 function markCurrentMastered() {
   const w = current.value;
   if (!w) return;
   setMastered(w.id, true);
-  // 仅循环未掌握单词时，掌握后直接从卡组里移除
-  if (onlyUnmastered.value) {
-    deck.value = deck.value.filter((x) => x.id !== w.id);
-    if (idx.value >= deck.value.length) idx.value = 0;
-    revealed.value = false;
-  }
+  if (onlyUnmastered.value) pruneDeck(w.id);
 }
 
 // ---- 默写（中 → 英模式） ----
@@ -105,11 +107,23 @@ function normalizeSpell(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/**
+ * 默写结果回写学情：答对标记已掌握，答错退回未掌握；
+ * 「仅未掌握」模式下答对后直接移出卡组。
+ */
+function recordSpellResult(ok: boolean) {
+  const w = current.value;
+  if (!w) return;
+  setMastered(w.id, ok);
+  if (ok && onlyUnmastered.value) pruneDeck(w.id);
+}
+
 function submitSpell() {
   if (!current.value) return;
   if (spellState.value === "correct") return; // 正在等待自动切换下一个
   const ok =
     normalizeSpell(spelling.value) === normalizeSpell(current.value.name);
+  recordSpellResult(ok);
   window.clearTimeout(spellTimer);
   if (ok) {
     // 答对：绿框示意一下，然后自动进入下一个单词
@@ -241,7 +255,7 @@ watch(mode, () => {
       <div class="card-area">
         <div class="fc-status">
           {{ activeDict?.name }} · 第 {{ round }} 轮 · {{ idx + 1 }} /
-          {{ deck.length }}
+          {{ deck.length }} · {{ current.mastered ? "已掌握" : "未掌握" }}
           <template v-if="onlyUnmastered">（仅未掌握）</template>
         </div>
 

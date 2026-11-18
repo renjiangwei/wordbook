@@ -1,6 +1,13 @@
 import { computed, reactive } from "vue";
 import { loadWords, saveWords } from "./api";
-import type { Dictionary, WordDraft, WordEntry } from "./types";
+import type {
+  Dictionary,
+  SortMode,
+  StatusFilter,
+  ViewMode,
+  WordDraft,
+  WordEntry,
+} from "./types";
 
 export const store = reactive({
   ready: false,
@@ -8,6 +15,12 @@ export const store = reactive({
   words: [] as WordEntry[],
   activeDictId: "",
   query: "",
+  /** 学情筛选 */
+  filter: "all" as StatusFilter,
+  /** 排序：默认按导入/创建时间，新→旧 */
+  sort: "time" as SortMode,
+  /** 视图：卡片 / 紧凑列表 */
+  view: "card" as ViewMode,
   toast: "",
 });
 
@@ -21,21 +34,55 @@ export const dictWords = computed(() =>
 );
 
 export const filteredWords = computed(() => {
+  let list = dictWords.value;
+  if (store.filter !== "all") {
+    list = list.filter((w) => w.mastered === (store.filter === "mastered"));
+  }
   const q = store.query.trim().toLowerCase();
-  if (!q) return dictWords.value;
-  return dictWords.value.filter(
-    (w) =>
-      w.name.toLowerCase().includes(q) ||
-      w.trans.some((t) => t.toLowerCase().includes(q)) ||
-      w.note.toLowerCase().includes(q) ||
-      w.usphone.toLowerCase().includes(q) ||
-      w.ukphone.toLowerCase().includes(q),
-  );
+  if (q) {
+    list = list.filter(
+      (w) =>
+        w.name.toLowerCase().includes(q) ||
+        w.trans.some((t) => t.toLowerCase().includes(q)) ||
+        w.note.toLowerCase().includes(q) ||
+        w.usphone.toLowerCase().includes(q) ||
+        w.ukphone.toLowerCase().includes(q),
+    );
+  }
+  const arr = [...list];
+  if (store.sort === "alpha") {
+    arr.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+  } else {
+    // 时间序：新→旧；同秒内保持导入/录入顺序（稳定排序）
+    arr.sort((a, b) => b.created_at - a.created_at);
+  }
+  return arr;
 });
 
-export const masteredCount = computed(
-  () => dictWords.value.filter((w) => w.mastered).length,
-);
+export const statusCounts = computed(() => {
+  const c = { all: dictWords.value.length, unmastered: 0, mastered: 0 };
+  for (const w of dictWords.value) c[w.mastered ? "mastered" : "unmastered"]++;
+  return c;
+});
+
+// ---- 列表偏好（排序 / 视图记忆在本地，学情筛选每次进入重置为全部） ----
+
+const SORT_KEY = "wordbook.sort";
+const VIEW_KEY = "wordbook.view";
+
+export function setFilter(f: StatusFilter) {
+  store.filter = f;
+}
+
+export function setSort(mode: SortMode) {
+  store.sort = mode;
+  localStorage.setItem(SORT_KEY, mode);
+}
+
+export function setView(mode: ViewMode) {
+  store.view = mode;
+  localStorage.setItem(VIEW_KEY, mode);
+}
 
 export function dictWordCount(dictId: string): number {
   let n = 0;
@@ -141,13 +188,17 @@ export async function initStore() {
       ];
     }
   }
-  // 恢复上次选中的词库
+  // 恢复上次选中的词库及列表偏好
   const saved = localStorage.getItem(ACTIVE_DICT_KEY);
   store.activeDictId =
     saved && store.dicts.some((d) => d.id === saved)
       ? saved
       : store.dicts[0].id;
   localStorage.setItem(ACTIVE_DICT_KEY, store.activeDictId);
+  const savedSort = localStorage.getItem(SORT_KEY);
+  if (savedSort === "time" || savedSort === "alpha") store.sort = savedSort;
+  const savedView = localStorage.getItem(VIEW_KEY);
+  if (savedView === "card" || savedView === "compact") store.view = savedView;
   store.ready = true;
 }
 
