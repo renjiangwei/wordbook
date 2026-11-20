@@ -1,4 +1,4 @@
-import { computed, reactive } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { loadWords, saveWords } from "./api";
 import type {
   Dictionary,
@@ -33,12 +33,14 @@ export const dictWords = computed(() =>
   store.words.filter((w) => w.dictId === store.activeDictId),
 );
 
+const searchQuery = computed(() => store.query.trim().toLowerCase());
+
 export const filteredWords = computed(() => {
   let list = dictWords.value;
   if (store.filter !== "all") {
     list = list.filter((w) => w.mastered === (store.filter === "mastered"));
   }
-  const q = store.query.trim().toLowerCase();
+  const q = searchQuery.value;
   if (q) {
     list = list.filter(
       (w) =>
@@ -65,10 +67,56 @@ export const statusCounts = computed(() => {
   return c;
 });
 
-// ---- 列表偏好（排序 / 视图记忆在本地，学情筛选每次进入重置为全部） ----
+// ---- 列表偏好与分页 ----
 
 const SORT_KEY = "wordbook.sort";
 const VIEW_KEY = "wordbook.view";
+const WORDS_PER_PAGE = 10;
+const requestedPage = ref(1);
+
+export const wordPageCount = computed(() =>
+  Math.max(1, Math.ceil(filteredWords.value.length / WORDS_PER_PAGE)),
+);
+export const wordPage = computed(() =>
+  Math.min(requestedPage.value, wordPageCount.value),
+);
+export const pagedWords = computed(() => {
+  const start = (wordPage.value - 1) * WORDS_PER_PAGE;
+  return filteredWords.value.slice(start, start + WORDS_PER_PAGE);
+});
+
+function pageKey(dictId: string, filter: StatusFilter): string {
+  return `wordbook.page.${filter}.${dictId}`;
+}
+
+export function setWordPage(page: number) {
+  if (!Number.isSafeInteger(page)) return;
+  requestedPage.value = Math.max(1, Math.min(page, wordPageCount.value));
+  if (store.activeDictId && !searchQuery.value) {
+    localStorage.setItem(
+      pageKey(store.activeDictId, store.filter),
+      String(requestedPage.value),
+    );
+  }
+}
+
+watch(
+  [() => store.activeDictId, () => store.filter, searchQuery, wordPageCount],
+  ([dictId, filter, query, pageCount], [previousDictId, previousFilter, previousQuery]) => {
+    if (
+      dictId !== previousDictId ||
+      filter !== previousFilter ||
+      query !== previousQuery
+    ) {
+      const savedPage = dictId && !query
+        ? Number(localStorage.getItem(pageKey(dictId, filter)))
+        : 1;
+      requestedPage.value =
+        Number.isSafeInteger(savedPage) && savedPage > 0 ? savedPage : 1;
+    }
+    if (requestedPage.value > pageCount) setWordPage(pageCount);
+  },
+);
 
 export function setFilter(f: StatusFilter) {
   store.filter = f;
@@ -240,6 +288,9 @@ export function removeDict(id: string) {
   if (i < 0) return;
   store.dicts.splice(i, 1);
   store.words = store.words.filter((w) => w.dictId !== id);
+  for (const filter of ["all", "unmastered", "mastered"] as const) {
+    localStorage.removeItem(pageKey(id, filter));
+  }
   if (store.activeDictId === id) {
     setActiveDict(store.dicts[Math.min(i, store.dicts.length - 1)].id);
   }

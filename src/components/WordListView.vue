@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { exportWords, importWords } from "../api";
 import {
@@ -9,14 +9,18 @@ import {
   formatTrans,
   importBook,
   importEntries,
+  pagedWords,
   removeWord,
   setFilter,
   setMastered,
   setSort,
   setView,
+  setWordPage,
   statusCounts,
   store,
   toast,
+  wordPage,
+  wordPageCount,
 } from "../store";
 import type { SortMode, StatusFilter, WordEntry } from "../types";
 import WordFormModal from "./WordFormModal.vue";
@@ -31,6 +35,22 @@ const showForm = ref(false);
 const editing = ref<WordEntry | null>(null);
 /** 紧凑列表中展开的单词 id */
 const expandedId = ref<string | null>(null);
+const wordList = ref<HTMLElement | null>(null);
+
+watch(
+  [
+    () => store.activeDictId,
+    () => store.query,
+    () => store.filter,
+    () => store.sort,
+    () => store.view,
+    wordPage,
+  ],
+  () => {
+    expandedId.value = null;
+    if (wordList.value) wordList.value.scrollTop = 0;
+  },
+);
 
 function openAdd() {
   editing.value = null;
@@ -48,6 +68,12 @@ function toggleExpand(id: string) {
 
 function onSortChange(e: Event) {
   setSort((e.target as HTMLSelectElement).value as SortMode);
+}
+
+function onPageChange(event: Event) {
+  const input = event.currentTarget as HTMLInputElement;
+  setWordPage(input.valueAsNumber);
+  input.value = String(wordPage.value);
 }
 
 function statusCount(f: StatusFilter): number {
@@ -173,7 +199,7 @@ async function doExport() {
       </div>
     </div>
 
-    <div class="word-list" :class="store.view === 'compact' ? 'compact' : ''">
+    <div ref="wordList" class="word-list" :class="{ compact: store.view === 'compact' }">
       <p v-if="dictWords.length === 0" class="empty">
         「{{ activeDict?.name }}」还没有单词。<br />
         点击右上角「添加单词」手动记录，或「导入」你已有的 JSON 词库文件。
@@ -188,7 +214,7 @@ async function doExport() {
       <!-- 卡片视图 -->
       <template v-if="store.view === 'card'">
         <article
-          v-for="w in filteredWords"
+          v-for="w in pagedWords"
           :key="w.id"
           class="word-card"
           :class="{ mastered: w.mastered }"
@@ -216,7 +242,7 @@ async function doExport() {
       <!-- 紧凑列表视图：点击行展开详情和操作 -->
       <template v-else>
         <div
-          v-for="w in filteredWords"
+          v-for="w in pagedWords"
           :key="w.id"
           class="word-item"
           :class="{ open: expandedId === w.id, mastered: w.mastered }"
@@ -247,6 +273,36 @@ async function doExport() {
         </div>
       </template>
     </div>
+
+    <nav v-if="wordPageCount > 1" class="pagination" aria-label="单词分页">
+      <button
+        class="btn small"
+        :disabled="wordPage <= 1"
+        @click="setWordPage(wordPage - 1)"
+      >
+        上一页
+      </button>
+      <label class="page-number">
+        第
+        <input
+          type="number"
+          min="1"
+          :max="wordPageCount"
+          :value="wordPage"
+          aria-label="跳转页码"
+          @change="onPageChange"
+          @keydown.enter.prevent="onPageChange"
+        />
+        页 / 共 {{ wordPageCount }} 页
+      </label>
+      <button
+        class="btn small"
+        :disabled="wordPage >= wordPageCount"
+        @click="setWordPage(wordPage + 1)"
+      >
+        下一页
+      </button>
+    </nav>
 
     <WordFormModal v-if="showForm" :entry="editing" @close="showForm = false" />
   </section>

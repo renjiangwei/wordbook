@@ -254,8 +254,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 22px 26px;
-  gap: 14px;
+  padding: 14px 16px;
+  gap: 12px;
 }
 
 .view-head {
@@ -469,6 +469,42 @@ textarea {
 
 .word-list.compact {
   gap: 4px;
+}
+
+.pagination {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pagination .btn:disabled {
+  border-color: var(--border);
+  color: var(--text-2);
+  opacity: 0.55;
+  cursor: default;
+}
+
+.page-number {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.page-number input {
+  width: 7ch;
+  padding: 4px;
+  font-size: inherit;
+  text-align: center;
+  appearance: textfield;
+}
+
+.page-number input::-webkit-inner-spin-button {
+  appearance: none;
 }
 
 .word-card {
