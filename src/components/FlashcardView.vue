@@ -90,7 +90,7 @@ function markCurrentMastered() {
   if (onlyUnmastered.value) pruneDeck(w.id);
 }
 
-// ---- 默写（中 → 英模式） ----
+// ---- 拼写练习 ----
 
 const spellInput = ref<HTMLInputElement | null>(null);
 const spelling = ref("");
@@ -108,14 +108,14 @@ function normalizeSpell(s: string): string {
 }
 
 /**
- * 默写结果回写学情：答对标记已掌握，答错退回未掌握；
- * 「仅未掌握」模式下答对后直接移出卡组。
+ * 中 → 英且答案未显示时，拼写正确才计为已掌握。
+ * 「仅未掌握」模式下，已掌握的单词直接移出卡组。
  */
-function recordSpellResult(ok: boolean) {
+function recordSpellResult(mastered: boolean) {
   const w = current.value;
   if (!w) return;
-  setMastered(w.id, ok);
-  if (ok && onlyUnmastered.value) pruneDeck(w.id);
+  setMastered(w.id, mastered);
+  if (mastered && onlyUnmastered.value) pruneDeck(w.id);
 }
 
 function submitSpell() {
@@ -123,7 +123,8 @@ function submitSpell() {
   if (spellState.value === "correct") return; // 正在等待自动切换下一个
   const ok =
     normalizeSpell(spelling.value) === normalizeSpell(current.value.name);
-  recordSpellResult(ok);
+  const mastered = ok && mode.value === "cn2en" && !flipped.value;
+  recordSpellResult(mastered);
   window.clearTimeout(spellTimer);
   if (ok) {
     // 答对：绿框示意一下，然后自动进入下一个单词
