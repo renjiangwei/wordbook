@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { activeDict, dictWords, setMastered, store } from "../store";
+import { activeDict, dictWords, setMastered, sortedDictWords, store } from "../store";
 import type { WordEntry } from "../types";
 
 type Mode = "en2cn" | "cn2en" | "both";
+
+const props = defineProps<{ order: "random" | "sequential" }>();
 
 const mode = ref<Mode>("en2cn");
 const onlyUnmastered = ref(false);
@@ -12,11 +14,10 @@ const idx = ref(0);
 const revealed = ref(false);
 const round = ref(1);
 
-const pool = computed(() =>
-  onlyUnmastered.value
-    ? dictWords.value.filter((w) => !w.mastered)
-    : dictWords.value,
-);
+const pool = computed(() => {
+  const words = props.order === "sequential" ? sortedDictWords.value : dictWords.value;
+  return onlyUnmastered.value ? words.filter((w) => !w.mastered) : words;
+});
 
 const current = computed<WordEntry | null>(() => deck.value[idx.value] ?? null);
 /** 中英同显模式下没有「翻开」的概念，直接全显示 */
@@ -37,7 +38,7 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 function rebuild() {
-  deck.value = shuffle(pool.value);
+  deck.value = props.order === "random" ? shuffle(pool.value) : [...pool.value];
   idx.value = 0;
   revealed.value = false;
   round.value = 1;
@@ -57,8 +58,7 @@ function next() {
   if (deck.value.length === 0) return;
   revealed.value = false;
   if (idx.value + 1 >= deck.value.length) {
-    // 到末尾后重新打乱，进入下一轮循环
-    deck.value = shuffle(pool.value);
+    if (props.order === "random") deck.value = shuffle(pool.value);
     idx.value = 0;
     round.value++;
   } else {
@@ -174,7 +174,10 @@ onMounted(() => {
   window.addEventListener("keydown", onKey);
 });
 
-onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKey);
+  window.clearTimeout(spellTimer);
+});
 
 // 词库在组件挂载后才加载完成时，重新构建卡组
 watch(
@@ -212,7 +215,7 @@ watch(mode, () => {
   <section class="view">
     <header class="view-head">
       <div>
-        <h2>随机循环</h2>
+        <h2>{{ props.order === "sequential" ? "顺序循环" : "随机循环" }}</h2>
         <p class="muted">
           空格 翻转 · ← → 切换单词 · M 标记掌握 · 回车 检查拼写
         </p>

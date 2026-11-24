@@ -30,6 +30,8 @@ export type StatusFilter = "all" | "unmastered" | "mastered";
 export type SortMode = "time" | "alpha";
 /** 列表视图：卡片 / 紧凑列表 */
 export type ViewMode = "card" | "compact";
+/** 单词本显示的语言 */
+export type WordDisplayMode = "zh" | "en" | "both";
 
 export interface WordBook {
   version: number;

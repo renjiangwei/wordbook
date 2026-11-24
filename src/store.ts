@@ -5,6 +5,7 @@ import type {
   SortMode,
   StatusFilter,
   ViewMode,
+  WordDisplayMode,
   WordDraft,
   WordEntry,
 } from "./types";
@@ -21,6 +22,7 @@ export const store = reactive({
   sort: "time" as SortMode,
   /** 视图：卡片 / 紧凑列表 */
   view: "card" as ViewMode,
+  displayMode: "both" as WordDisplayMode,
   toast: "",
 });
 
@@ -35,8 +37,17 @@ export const dictWords = computed(() =>
 
 const searchQuery = computed(() => store.query.trim().toLowerCase());
 
+export const sortedDictWords = computed(() => {
+  const words = [...dictWords.value];
+  if (store.sort === "alpha") {
+    return words.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+  }
+  // 时间序：新→旧；同秒内保持导入/录入顺序（稳定排序）
+  return words.sort((a, b) => b.created_at - a.created_at);
+});
+
 export const filteredWords = computed(() => {
-  let list = dictWords.value;
+  let list = sortedDictWords.value;
   if (store.filter !== "all") {
     list = list.filter((w) => w.mastered === (store.filter === "mastered"));
   }
@@ -51,14 +62,7 @@ export const filteredWords = computed(() => {
         w.ukphone.toLowerCase().includes(q),
     );
   }
-  const arr = [...list];
-  if (store.sort === "alpha") {
-    arr.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
-  } else {
-    // 时间序：新→旧；同秒内保持导入/录入顺序（稳定排序）
-    arr.sort((a, b) => b.created_at - a.created_at);
-  }
-  return arr;
+  return list;
 });
 
 export const statusCounts = computed(() => {
@@ -71,6 +75,7 @@ export const statusCounts = computed(() => {
 
 const SORT_KEY = "wordbook.sort";
 const VIEW_KEY = "wordbook.view";
+const DISPLAY_MODE_KEY = "wordbook.displayMode";
 const WORDS_PER_PAGE = 10;
 const requestedPage = ref(1);
 
@@ -130,6 +135,11 @@ export function setSort(mode: SortMode) {
 export function setView(mode: ViewMode) {
   store.view = mode;
   localStorage.setItem(VIEW_KEY, mode);
+}
+
+export function setDisplayMode(mode: WordDisplayMode) {
+  store.displayMode = mode;
+  localStorage.setItem(DISPLAY_MODE_KEY, mode);
 }
 
 export function dictWordCount(dictId: string): number {
@@ -247,6 +257,12 @@ export async function initStore() {
   if (savedSort === "time" || savedSort === "alpha") store.sort = savedSort;
   const savedView = localStorage.getItem(VIEW_KEY);
   if (savedView === "card" || savedView === "compact") store.view = savedView;
+  const savedDisplayMode = localStorage.getItem(DISPLAY_MODE_KEY);
+  if (
+    savedDisplayMode === "zh" || savedDisplayMode === "en" || savedDisplayMode === "both"
+  ) {
+    store.displayMode = savedDisplayMode;
+  }
   store.ready = true;
 }
 
@@ -276,6 +292,21 @@ export function renameDict(id: string, name: string) {
   const d = store.dicts.find((x) => x.id === id);
   if (!d) return;
   d.name = name.trim() || d.name;
+  persist();
+}
+
+export function moveDict(id: string, targetId: string, after: boolean) {
+  if (id === targetId) return;
+  const from = store.dicts.findIndex((d) => d.id === id);
+  const target = store.dicts.findIndex((d) => d.id === targetId);
+  if (from < 0 || target < 0) return;
+
+  const insertion = target + (after ? 1 : 0);
+  const to = from < insertion ? insertion - 1 : insertion;
+  if (from === to) return;
+
+  const [dict] = store.dicts.splice(from, 1);
+  store.dicts.splice(to, 0, dict);
   persist();
 }
 

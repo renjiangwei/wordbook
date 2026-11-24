@@ -8,6 +8,7 @@ import WordListView from "./components/WordListView.vue";
 import {
   dictWordCount,
   dictWords,
+  moveDict,
   removeDict,
   setActiveDict,
   store,
@@ -15,13 +16,56 @@ import {
 } from "./store";
 import type { Dictionary } from "./types";
 
-type Tab = "list" | "cards";
+type Tab = "list" | "random" | "sequential";
 const tab = ref<Tab>("list");
 
 // ---- 词库管理 ----
 
 const showDictForm = ref(false);
 const editingDict = ref<Dictionary | null>(null);
+const draggedDictId = ref<string | null>(null);
+const dictDropTarget = ref<{ id: string; after: boolean } | null>(null);
+
+function startDictDrag(event: DragEvent, id: string) {
+  if (!event.dataTransfer) return;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("application/x-wordbook-dict", id);
+  draggedDictId.value = id;
+}
+
+function isAfterDict(event: DragEvent) {
+  const row = event.currentTarget as HTMLElement;
+  const bounds = row.getBoundingClientRect();
+  return event.clientY >= bounds.top + bounds.height / 2;
+}
+
+function dragOverDict(event: DragEvent, id: string) {
+  if (!draggedDictId.value) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  dictDropTarget.value = draggedDictId.value === id
+    ? null
+    : { id, after: isAfterDict(event) };
+}
+
+function dragLeaveDict(event: DragEvent, id: string) {
+  const row = event.currentTarget as HTMLElement;
+  if (event.relatedTarget instanceof Node && row.contains(event.relatedTarget)) return;
+  if (dictDropTarget.value?.id === id) dictDropTarget.value = null;
+}
+
+function endDictDrag() {
+  draggedDictId.value = null;
+  dictDropTarget.value = null;
+}
+
+function dropDict(event: DragEvent, targetId: string) {
+  const id = draggedDictId.value;
+  if (!id) return;
+  event.preventDefault();
+  moveDict(id, targetId, isAfterDict(event));
+  endDictDrag();
+}
 
 function openCreateDict() {
   editingDict.value = null;
@@ -82,11 +126,24 @@ async function doBackup() {
           v-for="d in store.dicts"
           :key="d.id"
           class="dict-item"
-          :class="{ active: d.id === store.activeDictId }"
+          :class="{
+            active: d.id === store.activeDictId,
+            dragging: d.id === draggedDictId,
+            'drop-before': dictDropTarget?.id === d.id && !dictDropTarget.after,
+            'drop-after': dictDropTarget?.id === d.id && dictDropTarget.after,
+          }"
           :title="d.name"
           @click="setActiveDict(d.id)"
+          @dragover="dragOverDict($event, d.id)"
+          @dragleave="dragLeaveDict($event, d.id)"
+          @drop="dropDict($event, d.id)"
         >
-          <span class="dict-name">{{ d.name }}</span>
+          <span
+            class="dict-name"
+            :draggable="store.dicts.length > 1"
+            @dragstart="startDictDrag($event, d.id)"
+            @dragend="endDictDrag"
+          >{{ d.name }}</span>
           <span class="dict-count">{{ dictWordCount(d.id) }}</span>
           <span class="dict-ops">
             <button
@@ -112,8 +169,11 @@ async function doBackup() {
         <button :class="{ active: tab === 'list' }" @click="tab = 'list'">
           📚 单词本
         </button>
-        <button :class="{ active: tab === 'cards' }" @click="tab = 'cards'">
+        <button :class="{ active: tab === 'random' }" @click="tab = 'random'">
           🎲 随机循环
+        </button>
+        <button :class="{ active: tab === 'sequential' }" @click="tab = 'sequential'">
+          🔁 顺序循环
         </button>
       </nav>
 
@@ -125,7 +185,7 @@ async function doBackup() {
 
     <main class="content">
       <WordListView v-if="tab === 'list'" />
-      <FlashcardView v-else />
+      <FlashcardView v-else :key="tab" :order="tab" />
     </main>
 
     <DictFormModal

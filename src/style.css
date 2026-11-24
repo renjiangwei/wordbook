@@ -152,6 +152,18 @@ body {
   color: #fff;
 }
 
+.dict-item.dragging {
+  opacity: 0.5;
+}
+
+.dict-item.drop-before {
+  box-shadow: inset 0 2px #a8b0ff;
+}
+
+.dict-item.drop-after {
+  box-shadow: inset 0 -2px #a8b0ff;
+}
+
 .dict-name {
   flex: 1;
   min-width: 0;
@@ -159,6 +171,10 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+}
+
+.dict-name[draggable="true"] {
+  cursor: grab;
 }
 
 .dict-count {
@@ -380,7 +396,7 @@ textarea {
   cursor: pointer;
 }
 
-/* ---- 列表工具栏：学情筛选 / 排序 / 视图切换 ---- */
+/* ---- 列表工具栏：学情筛选 / 显示语言 / 排序 / 视图切换 ---- */
 
 .list-toolbar {
   display: flex;
@@ -446,11 +462,13 @@ textarea {
 .toolbar-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
   margin-left: auto;
 }
 
-.sort-select {
+.toolbar-select {
   padding: 5px 8px;
   font-size: 13px;
   border-radius: 8px;
@@ -565,6 +583,10 @@ textarea {
   font-size: 14px;
 }
 
+.word-trans:first-child {
+  margin-top: 0;
+}
+
 .word-note {
   margin-top: 4px;
   color: var(--text-2);
@@ -667,6 +689,7 @@ textarea {
   color: #a7adb8;
   font-size: 11px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .row-detail {
@@ -763,7 +786,7 @@ textarea {
   margin-top: 6px;
 }
 
-/* ---- 随机循环 ---- */
+/* ---- 循环练习 ---- */
 
 .fc-toolbar {
   display: flex;

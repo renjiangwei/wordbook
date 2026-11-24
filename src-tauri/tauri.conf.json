@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "单词本",
+        "dragDropEnabled": false,
         "width": 920,
         "height": 660,
         "minWidth": 720,

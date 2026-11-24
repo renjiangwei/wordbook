@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { exportWords, importWords } from "../api";
 import {
@@ -11,6 +11,7 @@ import {
   importEntries,
   pagedWords,
   removeWord,
+  setDisplayMode,
   setFilter,
   setMastered,
   setSort,
@@ -22,7 +23,7 @@ import {
   wordPage,
   wordPageCount,
 } from "../store";
-import type { SortMode, StatusFilter, WordEntry } from "../types";
+import type { SortMode, StatusFilter, WordDisplayMode, WordEntry } from "../types";
 import WordFormModal from "./WordFormModal.vue";
 
 const FILTERS: Array<{ value: StatusFilter; label: string }> = [
@@ -36,6 +37,8 @@ const editing = ref<WordEntry | null>(null);
 /** 紧凑列表中展开的单词 id */
 const expandedId = ref<string | null>(null);
 const wordList = ref<HTMLElement | null>(null);
+const showEnglish = computed(() => store.displayMode !== "zh");
+const showChinese = computed(() => store.displayMode !== "en");
 
 watch(
   [
@@ -68,6 +71,10 @@ function toggleExpand(id: string) {
 
 function onSortChange(e: Event) {
   setSort((e.target as HTMLSelectElement).value as SortMode);
+}
+
+function onDisplayModeChange(event: Event) {
+  setDisplayMode((event.currentTarget as HTMLSelectElement).value as WordDisplayMode);
 }
 
 function onPageChange(event: Event) {
@@ -174,7 +181,17 @@ async function doExport() {
       </div>
       <div class="toolbar-right">
         <select
-          class="sort-select"
+          class="toolbar-select"
+          :value="store.displayMode"
+          aria-label="显示语言"
+          @change="onDisplayModeChange"
+        >
+          <option value="zh">仅显示中文</option>
+          <option value="en">仅显示英文</option>
+          <option value="both">中英都显示</option>
+        </select>
+        <select
+          class="toolbar-select"
           :value="store.sort"
           title="排序方式"
           @change="onSortChange"
@@ -220,14 +237,20 @@ async function doExport() {
           :class="{ mastered: w.mastered }"
         >
           <div class="word-main">
-            <div class="word-title">
-              <span class="word-name">{{ w.name }}</span>
-              <span v-if="w.usphone" class="phone">美 {{ w.usphone }}</span>
-              <span v-if="w.ukphone" class="phone">英 {{ w.ukphone }}</span>
+            <div v-if="showEnglish || w.mastered" class="word-title">
+              <template v-if="showEnglish">
+                <span class="word-name">{{ w.name || "暂无英文" }}</span>
+                <span v-if="w.usphone" class="phone">美 {{ w.usphone }}</span>
+                <span v-if="w.ukphone" class="phone">英 {{ w.ukphone }}</span>
+              </template>
               <span v-if="w.mastered" class="badge">已掌握</span>
             </div>
-            <div class="word-trans">{{ formatTrans(w) }}</div>
-            <div v-if="w.note" class="word-note">{{ w.note }}</div>
+            <div v-if="showChinese" class="word-trans">
+              {{ formatTrans(w) || "暂无中文释义" }}
+            </div>
+            <div v-if="store.displayMode === 'both' && w.note" class="word-note">
+              {{ w.note }}
+            </div>
           </div>
           <div class="word-actions">
             <button class="btn small" @click="setMastered(w.id, !w.mastered)">
@@ -253,15 +276,21 @@ async function doExport() {
               :class="{ mastered: w.mastered }"
               :title="w.mastered ? '已掌握' : '未掌握'"
             ></span>
-            <span class="row-name">{{ w.name }}</span>
-            <span v-if="w.usphone" class="row-phone">美 {{ w.usphone }}</span>
-            <span class="row-trans">{{ formatTrans(w) }}</span>
+            <span v-if="showEnglish" class="row-name">{{ w.name || "暂无英文" }}</span>
+            <span v-if="showEnglish && w.usphone" class="row-phone">美 {{ w.usphone }}</span>
+            <span v-if="showChinese" class="row-trans">
+              {{ formatTrans(w) || "暂无中文释义" }}
+            </span>
             <span class="row-chev">{{ expandedId === w.id ? "▾" : "▸" }}</span>
           </div>
           <div v-if="expandedId === w.id" class="row-detail">
-            <div v-if="w.ukphone" class="detail-extra">英 {{ w.ukphone }}</div>
-            <div class="detail-trans">{{ formatTrans(w) }}</div>
-            <div v-if="w.note" class="detail-note">{{ w.note }}</div>
+            <div v-if="showEnglish && w.ukphone" class="detail-extra">英 {{ w.ukphone }}</div>
+            <div v-if="showChinese" class="detail-trans">
+              {{ formatTrans(w) || "暂无中文释义" }}
+            </div>
+            <div v-if="store.displayMode === 'both' && w.note" class="detail-note">
+              {{ w.note }}
+            </div>
             <div class="row-actions">
               <button class="btn small" @click="setMastered(w.id, !w.mastered)">
                 {{ w.mastered ? "取消掌握" : "标记掌握" }}
